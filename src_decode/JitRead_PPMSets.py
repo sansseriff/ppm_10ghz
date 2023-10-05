@@ -17,7 +17,7 @@ from scipy.stats import norm
 # import phd
 # import matplotlib
 from datetime import datetime
-from nan_seperation import seperate_by_nans
+from nan_seperation import seperate_by_nans, seperate_by_nans_2d
 from ClockTools_PPMSets import clockScan, histScan
 import matplotlib
 import matplotlib.pyplot as plt
@@ -936,8 +936,31 @@ class Event:
     tag_x: int = -1
     tag_y: int = -1
 
+def decode_ppm(
+    m_data_corrected,
+    dual_data,
+    gt_path: str,
+    sequence: int,
+    clock_period,
+    gm_data: GMData,
+    res_idx=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+):
+    """Decode a list of tags (with maximum length equal to the number of pulses sent in one cycle by the AWG)
+    into a list of symbols.
 
-def decode_ppm(m_data_corrected, gt_path, sequence, clock_period, res_idx=[1]):
+    Args:
+        m_data_corrected (np.ndarray 1D): a list of tags corrected with the simple slope-based correction
+        dual_data (np.ndarray 2D): the high and low trigger level tags, to be used for gaussian mixture correction
+        gt_path (str): path to the ground truth data
+        sequence (int): The 'run' number of the awg sequence. There's about 1000 to get through
+        clock_period (_type_): _description_
+        gm_data (GMData): datastructure containing the gaussian mixture model params
+        res_idx (list, optional): which cycle of each sequence to decode. A cycle is a repetition of the same
+        sequence by the AWG. Defaults to [1], as a simple setup only needs one cycle to decode the image
+
+    Returns:
+        _type_: _description_
+    """
     sequence_data, set_data = import_ground_truth(gt_path, sequence)
     dead_pulses = set_data["pulses_per_cycle"] - set_data["ppm"]["m_value"]
     dead_time_ps = dead_pulses * set_data["laser_time"] * 1e12
@@ -974,7 +997,8 @@ def decode_ppm(m_data_corrected, gt_path, sequence, clock_period, res_idx=[1]):
     # print("m data corrected: ", m_data_corrected[:100])
     # print(m_data_corrected[:20])
     # tag_group_list = using_clump(m_data_corrected)
-    tag_group_list = seperate_by_nans(m_data_corrected, 200)
+    tag_group_list_pre_corrected = seperate_by_nans(m_data_corrected, 200)
+    tag_group_list = seperate_by_nans_2d(dual_data, 200)
 
     symbol_start = start_symbol_time[0]
     symbol_end = end_time[0]
