@@ -583,7 +583,7 @@ class GMTotalData:
 
 
 def find_gaussian_mixture(counts) -> GMTotalData:
-    gaussians = np.arange(5, 50, 2).tolist()
+    gaussians = np.arange(5, 24, 2).tolist()
     # gaussians = [45, 55]
     log_likelihoods = []
     gms = []
@@ -643,7 +643,7 @@ def find_gm_prob_for_offset(
     gm_means,
     gm_covar,
     gm_weights,
-    bin_width=50,
+    bin_width=100,
 ):
     """given the gaussian mixture model for the distribution of counts
     at a given offset index, find the probability of the count originating
@@ -924,6 +924,9 @@ class Result(Enum):
     INCORRECT_EXTRA = "C"
     DEADTIME_ERROR = "E"
 
+    def __str__(self):
+        return self.value
+
 
 @dataclass
 class Event:
@@ -935,6 +938,12 @@ class Event:
     tag: int = -1
     tag_x: int = -1
     tag_y: int = -1
+
+    def __str__(self):
+        return f"Event(res={self.result}, m={self.measured}, gauss_m={self.gaussian_measured})"
+    
+    def __repr__(self):
+        return str(self)
 
 def decode_ppm(
     m_data_corrected,
@@ -1133,7 +1142,7 @@ def decode_ppm(
     return Results, numb_crr, len(tag_group_list)
 
 
-def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_time):
+def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_time, bin_width=100):
     """_summary_
 
     Args:
@@ -1153,7 +1162,7 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
         gm_data.means,
         gm_data.covariances,
         gm_data.weights,
-        bin_width=50,
+        bin_width=bin_width,
     )
     prob_2 = find_gm_prob_for_offset(
         dual_tag,
@@ -1161,7 +1170,7 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
         gm_data.means,
         gm_data.covariances,
         gm_data.weights,
-        bin_width=50,
+        bin_width=bin_width,
     )
     prob_3 = find_gm_prob_for_offset(
         dual_tag,
@@ -1169,7 +1178,7 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
         gm_data.means,
         gm_data.covariances,
         gm_data.weights,
-        bin_width=50,
+        bin_width=bin_width,
     )
     prob_4 = find_gm_prob_for_offset(
         dual_tag,
@@ -1177,7 +1186,7 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
         gm_data.means,
         gm_data.covariances,
         gm_data.weights,
-        bin_width=50,
+        bin_width=bin_width,
     )
     prob_5 = find_gm_prob_for_offset(
         dual_tag,
@@ -1185,7 +1194,7 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
         gm_data.means,
         gm_data.covariances,
         gm_data.weights,
-        bin_width=50,
+        bin_width=bin_width,
     )
     prob_6 = find_gm_prob_for_offset(
         dual_tag,
@@ -1193,7 +1202,7 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
         gm_data.means,
         gm_data.covariances,
         gm_data.weights,
-        bin_width=50,
+        bin_width=bin_width,
     )
     prob_7 = find_gm_prob_for_offset(
         dual_tag,
@@ -1201,7 +1210,7 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
         gm_data.means,
         gm_data.covariances,
         gm_data.weights,
-        bin_width=50,
+        bin_width=bin_width,
     )
     prob_8 = find_gm_prob_for_offset(
         dual_tag,
@@ -1209,7 +1218,7 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
         gm_data.means,
         gm_data.covariances,
         gm_data.weights,
-        bin_width=50,
+        bin_width=bin_width,
     )
     prob_9 = find_gm_prob_for_offset(
         dual_tag,
@@ -1217,7 +1226,7 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
         gm_data.means,
         gm_data.covariances,
         gm_data.weights,
-        bin_width=50,
+        bin_width=bin_width,
     )
 
     # print("prob 1: ", prob_1, " prob 2: ", prob_2, " prob 3: ", prob_3)
@@ -1645,7 +1654,7 @@ def run_analysis(
     offs = []
     tag_group_lengths = []
 
-    input("to continue press enter")
+    # input("to continue press enter")
 
     if DEBUG:
         print("Length of section list: ", len(section_list))
@@ -1810,7 +1819,7 @@ if __name__ == "__main__":
                 out, default=lambda o: o.__dict__(), option=orjson.OPT_SERIALIZE_NUMPY
             )
             dB_stub = file.split("_")[-1][:-8]
-            with open("..//inter//decode_20GHz" + dB_stub + ".json", "wb") as file:
+            with open("..//inter//decode_10GHz" + dB_stub + ".json", "wb") as file:
                 file.write(results_bytes)
 
         input("Press Enter to exit...")
