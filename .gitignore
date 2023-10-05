@@ -1,0 +1,17 @@
+.*
+/data/*
+/inter/*
+/figs/*
+!/data/.gitkeep
+!/inter/.gitkeep
+!.gitignore
+!.github/
+
+*__pycache__
+
+*.svg
+*.pdf
+*.jpg
+*.jpeg
+*.png
+
