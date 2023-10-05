@@ -940,7 +940,7 @@ class Event:
     tag_y: int = -1
 
     def __str__(self):
-        return f"Event(res={self.result}, m={self.measured}, gauss_m={self.gaussian_measured})"
+        return f"Event(res={self.result}, meas={self.measured}, gauss_m={self.gaussian_measured}, true={self.true})"
     
     def __repr__(self):
         return str(self)
@@ -1156,6 +1156,24 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
     """
     offs = -0.00
 
+    prob_n1 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate - 6 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=bin_width,
+    )
+
+    prob_0 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate - 5 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=bin_width,
+    )
+
     prob_1 = find_gm_prob_for_offset(
         dual_tag,
         estimate - 4 + offs,
@@ -1228,13 +1246,32 @@ def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_ti
         gm_data.weights,
         bin_width=bin_width,
     )
+    prob_10 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate + 5 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=bin_width,
+    )
+    
+    prob_11 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate + 6 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=bin_width,
+    )
+    
+
 
     # print("prob 1: ", prob_1, " prob 2: ", prob_2, " prob 3: ", prob_3)
     largest_idx = np.argmax(
-        [prob_1, prob_2, prob_3, prob_4, prob_5, prob_6, prob_7, prob_8, prob_9]
+        [prob_n1, prob_0, prob_1, prob_2, prob_3, prob_4, prob_5, prob_6, prob_7, prob_8, prob_9, prob_10, prob_11]
     )
 
-    return int(largest_idx - 4)
+    return int(largest_idx)
     # return 0
 
 
