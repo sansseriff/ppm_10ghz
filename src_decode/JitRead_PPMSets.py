@@ -437,14 +437,21 @@ def offset_tags(dual_data, offset, clock_period):
     dual_data[less_than_mask] = dual_data[less_than_mask] + clock_period
     return dual_data
 
-
+# should I change this for 10 GHz??
 def offset_tags_single(data, offset, clock_period):
     data = data - offset
-    greater_than_mask = data > clock_period + 50 / 2
-    less_than_mask = data < -50 / 2
+    greater_than_mask = data > clock_period + 100 / 2
+    less_than_mask = data < -100 / 2
     data[greater_than_mask] = data[greater_than_mask] - clock_period
     data[less_than_mask] = data[less_than_mask] + clock_period
+    return data
 
+def offset_tags_single_2d(data, offset, clock_period):
+    data = data - offset
+    greater_than_mask = data[:, 0] > clock_period + 100 / 2
+    less_than_mask = data[:, 0] < -100 / 2
+    data[greater_than_mask] = data[greater_than_mask] - clock_period
+    data[less_than_mask] = data[less_than_mask] + clock_period
     return data
 
 
@@ -558,7 +565,6 @@ def find_pnr_correction(counts):
     corr2[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), corr2[~mask])
 
     return slices, corr1, corr2
-
 
 
 @dataclass
@@ -711,24 +717,42 @@ class PNRHistCorrectionData:
     slices: np.ndarray
 
 
-def viz_counts_and_correction(counts, slices, corr1, corr2):
+def viz_counts_and_correction(
+    counts, slices, corr1, corr2, gm_data, inter_path=None, db=None
+) -> PNRHistCorrectionData:
+    print("LENGTH OF COUNTS: ", len(counts))
     bins = np.arange(-1000, 1000)
-    fig, ax = plt.subplots(1, 2, figsize=(6, 4))
-    ax[0].hist2d(
-        counts[:, 1] - counts[:, 0],
-        counts[:, 0],
-        bins=(bins, bins),
-        norm=matplotlib.colors.LogNorm(),
-    )
-    ax[0].plot(slices[:-1], corr1, color="k")
+    if DEBUG:
+        fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(8, 4))
+        # print("ax", ax)
+        ax[0].hist2d(
+            counts[:, 1] - counts[:, 0],
+            counts[:, 0],
+            bins=(bins, bins),
+            norm=matplotlib.colors.LogNorm(),
+        )
+        ax[0].plot(slices[:-1], corr1, color="k")
 
-    ax[1].hist2d(
-        counts[:, 1] - counts[:, 0],
-        counts[:, 1],
-        bins=(bins, bins),
-        norm=matplotlib.colors.LogNorm(),
-    )
-    ax[1].plot(slices[:-1], corr2, color="k")
+        ax[1].hist2d(
+            counts[:, 1] - counts[:, 0],
+            counts[:, 1],
+            bins=(bins, bins),
+            norm=matplotlib.colors.LogNorm(),
+        )
+        ax[1].plot(slices[:-1], corr2, color="k")
+        ax[0].set_title("correction 1")
+        ax[1].set_title("correction 2")
+
+        ax[2].hist2d(
+            counts[:, 0],
+            counts[:, 1],
+            bins=(bins, bins),
+            norm=matplotlib.colors.LogNorm(),
+        )
+        plot_gm_data(ax[2], gm_data, data_alpha=0.1)
+
+    d = PNRHistCorrectionData(counts, corr1, corr2, bins, slices)
+    return d
 
 
 def apply_pnr_correction(dual_data_nan, slices, corr1, corr2, seperated_arrays=False):
@@ -769,7 +793,6 @@ def apply_pnr_correction(dual_data_nan, slices, corr1, corr2, seperated_arrays=F
         return corrected1_nan, corrected2_nan
 
 
-
 @dataclass
 class CorrectionData:
     corrected_hist1: np.array
@@ -780,10 +803,17 @@ class CorrectionData:
     uncorrected_hist2: np.array
 
 
-
 def viz_correction_effect(
-    sequence_counts, slices, corr1, corr2, gt_path, hist_set=False
-):
+    sequence_counts,
+    slices,
+    corr1,
+    corr2,
+    gt_path,
+    hist_set=False,
+    graph_data=None,
+    file_db=None,
+    inter_path=None,
+) -> CorrectionData:
     if hist_set:
         corrected1, corrected2, array_list1, array_list2 = apply_pnr_correction(
             sequence_counts, slices, corr1, corr2, seperated_arrays=True
@@ -796,28 +826,53 @@ def viz_correction_effect(
     laser_rate = set_data["system"]["laser_rate"]
     tbin = (1 / laser_rate) * 1000  # ps per time bin
     print("time bin width is: ", tbin)
-    plt.figure()
+
     bins = np.arange(sequence_counts.min(), sequence_counts.max())
     hist, bins = np.histogram(corrected1, bins=bins)
     hist2, bins = np.histogram(corrected2, bins=bins)
-    plt.plot(bins[1:], hist)
-    plt.plot(bins[1:], hist2)
-    plt.title("viz correction effect")
+
+    hist_bins = bins[1:]
+
+    # hist_bins_mask = (hist_bins >= -25) & (hist_bins < 25)
+    # print("TOTAL INSIDE: ", np.sum(hist[hist_bins_mask])/np.sum(hist))
+    if DEBUG:
+        plt.figure()
+        plt.plot(bins[1:], hist)
+        plt.plot(bins[1:], hist2)
+        plt.title("viz correction effect")
+        if graph_data is not None:
+            plt.plot(graph_data[0][1:], graph_data[1])
+            plt.plot(graph_data[0][1:], graph_data[2])
+
+    corrected_hist1 = hist.tolist()
+    corrected_hist2 = hist2.tolist()
+    corrected_bins = bins.tolist()
 
     m = (corrected1 <= tbin / 2) & (corrected1 > -tbin / 2)
     print("ratio: ", m.sum() / len(corrected1))
 
     if hist_set:
-        plt.figure()
+        if DEBUG:
+            plt.figure()
         i = 0
         for item in array_list1:
             if len(item) > 100:
                 i = i + 1
                 bins = np.arange(item.min(), item.max())
                 hist, bins = np.histogram(item, bins=bins, density=True)
-                plt.plot(bins[1:], hist)
+                if DEBUG:
+                    plt.plot(bins[1:], hist)
 
         print("iterations: ", i)
+
+    return CorrectionData(
+        corrected_hist1,
+        corrected_hist2,
+        corrected_bins,
+        graph_data[0],
+        graph_data[1],
+        graph_data[2],
+    )
 
 
 @njit
@@ -1223,6 +1278,44 @@ def adjust_ref_channel(_channels, _timetags, _offset, refChan):
     return _channels[sort], _timetags[sort]
 
 
+def simple_viz(array):
+    array = array[~np.isnan(array)]
+    min = int(array.min())
+    max = int(array.max())
+    print("min is: ", min)
+    print("max is: ", max)
+    bins = np.arange(min, max)
+    hist, bins = np.histogram(array, bins=bins)
+    if DEBUG:
+        plt.figure()
+        plt.plot(bins[:-1], hist)
+        plt.title("Simple Viz")
+
+def extend_results(master_results, sub_results):
+    # print("MASTER: ", master_results)
+    if master_results is None:
+        # print("maseter_results is None, and sub_results is: ", sub_results)
+        if type(sub_results[0]) is list:
+            return sub_results
+        else:
+            ls = []
+            for number in sub_results:
+                ls.append([number])
+            # print("CREATING MASTER: ", ls)
+            return ls
+    else:
+        assert len(master_results) == len(sub_results)
+        for inner_maser, inner_sub in zip(master_results, sub_results):
+            if type(inner_sub) is list:
+                inner_maser.extend(inner_sub)
+            else:
+                # print("inner master: ", inner_maser)
+                inner_maser.append(inner_sub)
+
+        # print("MASTER: ", master_results)
+        return master_results
+
+
 def run_analysis(
     path_, file_, gt_path, R, debug=True, inter_path=None
 ) -> tuple[list, GMTotalData, PNRHistCorrectionData, CorrectionData]:
@@ -1304,8 +1397,9 @@ def run_analysis(
         calibrate_section[1] - 10000 : calibrate_section[1] - 1000
     ]
 
-
-    dirty_clock_offset_1 = np.nanmean(offset_analysis_region[offset_analysis_region != 0])
+    dirty_clock_offset_1 = np.nanmean(
+        offset_analysis_region[offset_analysis_region != 0]
+    )
 
     bins = np.arange(np.max(m_data[~np.isnan(m_data)]))
     hist, bins = np.histogram(m_data[~np.isnan(m_data)], bins=bins)
@@ -1324,14 +1418,36 @@ def run_analysis(
     slices, corr1, corr2 = find_pnr_correction(sequence_counts)
     # end = time.time()
 
-    viz_counts_and_correction(sequence_counts, slices, corr1, corr2)
-    viz_correction_effect(sequence_counts, slices, corr1, corr2, gt_path)
-
     gm_data = find_gaussian_mixture(sequence_counts)
+
+    # viz_counts_and_correction(sequence_counts, slices, corr1, corr2)
+    # viz_correction_effect(sequence_counts, slices, corr1, corr2, gt_path)
+
+    hist_data = viz_counts_and_correction(
+        sequence_counts,
+        slices,
+        corr1,
+        corr2,
+        gm_data.gm_list[-1],
+        inter_path=inter_path,
+        db=file_dB,
+    )
+    correction_data = viz_correction_effect(
+        sequence_counts,
+        slices,
+        corr1,
+        corr2,
+        gt_path,
+        graph_data=graph_data,
+        file_db=file_dB,
+        inter_path=inter_path,
+    )
 
     m_data_corrected, _ = apply_pnr_correction(m_data, slices, corr1, corr2)
 
-    t1 = time.time()
+    ################################
+    ################################
+    simple_viz(m_data_corrected)
 
     # q = dualData[section_list[3,0]:section_list[3,1]]
 
@@ -1340,7 +1456,8 @@ def run_analysis(
     # print(dualData[calibrate_section[1]:])
 
     imgData = offset_tags(dualData[calibrate_section[1] :], offset, CLOCK_PERIOD)
-    # print(imgData[100000:100100])
+    if DEBUG:
+        print("calibrate section 1: ", calibrate_section[1])
 
     section_list = section_list - calibrate_section[1]
 
@@ -1348,19 +1465,34 @@ def run_analysis(
     # new versions of these arrays that don't include the calibrate section
     histClock = histClock[calibrate_section[1] :]
     dirtyClock = dirtyClock[calibrate_section[1] :]
+    if DEBUG:
+        print(
+            "number of nans in one axis of imgData: ",
+            np.sum(np.isnan(imgData[:, 0])),
+        )
 
-    print("number of nans in one axis of imgData: ", np.sum(np.isnan(imgData[:, 0])))
+    # print("number of nans in one axis of imgData: ", np.sum(np.isnan(imgData[:, 0])))
     imgData_corrected, _ = apply_pnr_correction(imgData, slices, corr1, corr2)
-    print("number of nan in imgData_corrected: ", np.sum(np.isnan(imgData_corrected)))
+    # print("number of nan in imgData_corrected: ", np.sum(np.isnan(imgData_corrected)))
+
+    if DEBUG:
+        print(
+            "number of nan in imgData: ",
+            np.sum(np.isnan(imgData)),
+        )
 
     # loop over the whole image
     t1 = time.time()
-    TTS = []
-    results = [[]]  # inside should match res_idx
+    numbers_correct = None
+    results = None
     Diffs = []
     offs = []
+    tag_group_lengths = []
 
     input("to continue press enter")
+
+    if DEBUG:
+        print("Length of section list: ", len(section_list))
 
     for i, slice in enumerate(section_list[:-1]):
         if i == 0:  # fist section used only for calibration
@@ -1372,13 +1504,12 @@ def run_analysis(
         )  # weird that I need the 1000. see log for 8/25/21. some delay issue??
 
         current_data_corrected = imgData_corrected[left:right]
+        current_data = imgData[left:right]  #######
         # print("current data corrected: ", current_data_corrected[:100])
         dirtyClock_offset = histClock[left:right]
         dirtyClock_b = dirtyClock[left:right]
 
-        dirty_clock_of1 = np.mean(
-            dirtyClock_offset[(dirtyClock_offset != 0) & (~np.isnan(dirtyClock_offset))]
-        )
+        dirty_clock_of1 = np.nanmean(dirtyClock_offset[dirtyClock_offset != 0])
 
         _, set_data = import_ground_truth(gt_path, 0)
         mult = 16000 / set_data["system"]["laser_rate"]
@@ -1393,27 +1524,62 @@ def run_analysis(
 
         # offset_adjustment_2 = round((dirty_clock_of2 - dirty_clock_offset_1)/200)*200
 
+        current_data_1 = offset_tags_single_2d(
+            current_data, offset_adjustment_1, CLOCK_PERIOD
+        )
+
         current_data_corrected_1 = offset_tags_single(
             current_data_corrected, offset_adjustment_1, CLOCK_PERIOD
         )
-        # current_data_corrected_2 = offset_tags_single(current_data_corrected, offset_adjustment_2, CLOCK_PERIOD)
 
-        results1, TT1 = decode_ppm(
-            current_data_corrected_1, gt_path, i, CLOCK_PERIOD, res_idx=[1]
+
+        # results1, TT1 = decode_ppm(
+        #     current_data_corrected_1, gt_path, i, CLOCK_PERIOD, res_idx=[1]
+        # )
+
+        results1, number_correct, tgl_length = decode_ppm(
+            current_data_corrected_1,
+            current_data_1,
+            gt_path,
+            i,
+            CLOCK_PERIOD,
+            gm_data.gm_list[-1],
+            res_idx=[1, 2, 3, 4, 5],
         )
+
+
         # results2, TT2, _ = decode_ppm(current_data_corrected_2, gt_path, i, res_idx = [3])
-        print(results1)
+        if DEBUG:
+            print(results1, end="\r")
 
-        for res, master_res in zip(results1, results):
-            master_res.extend(res)
-        TTS.append(TT1)
+                #            results                 results1
+        #   [ [####master_res#####] ]      [ [##res##] ]
+        #   | [####master_res#####] |      | [##res##] |
+        #   | [####master_res#####] |      | [##res##] |
+        #   | [####master_res#####] |   +  | [##res##] |
+        #   | [####master_res#####] |      | [##res##] |
+        #   [ [####master_res#####] ]      [ [##res##] ]
 
-    print("loop time: ", time.time() - t1)
-    TTS = np.array(TTS)
-    print("ACCURACY: ", np.mean(TTS) / 8)
+        results = extend_results(results, results1)
+        # for res, master_res in zip(results1, results):
+        #     master_res.extend(res)
 
-    # graphs = [s1, s2]
-    return results  # , graphs
+        numbers_correct = extend_results(numbers_correct, number_correct)
+
+        # numbers_correct.append(number_correct)
+        tag_group_lengths.append(tgl_length)
+
+    if DEBUG:
+        print("loop time: ", time.time() - t1)
+    numbers_correct = np.array(numbers_correct)
+
+    print("ACCURACY: ", np.mean(numbers_correct[0]) / 9)
+    print("ACCURACY: ", np.mean(numbers_correct[1]) / 9)
+    print("ACCURACY: ", np.mean(numbers_correct[2]) / 9)
+    print("ACCURACY: ", np.mean(numbers_correct[3]) / 9)
+    print("min of tag group lists: ", min(tag_group_lengths))
+
+    return results, gm_data, hist_data, correction_data
 
 
 @dataclass
