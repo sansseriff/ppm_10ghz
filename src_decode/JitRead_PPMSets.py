@@ -991,62 +991,68 @@ def decode_ppm(
 
         initial_time = initial_time + pulses_per_cycle * laser_time
 
-    # tag_group_list = np.split(m_data_corrected, np.where(np.diff(m_data_corrected) <= 0)[0] + 1)
-    # tag_group_list, diffs = group_list_generator(m_data_corrected)
-    # tag_group_list, diffs = group_list_generator(m_data_corrected)
-    # print("m data corrected: ", m_data_corrected[:100])
-    # print(m_data_corrected[:20])
-    # tag_group_list = using_clump(m_data_corrected)
     tag_group_list_pre_corrected = seperate_by_nans(m_data_corrected, 200)
     tag_group_list = seperate_by_nans_2d(dual_data, 200)
 
-    symbol_start = start_symbol_time[0]
-    symbol_end = end_time[0]
-    data_start = start_data_time[0]
-    true_p = true_pulse[0]
-    stage = []
-    q = 0
-    _results = []
+    if DEBUG:
+        print("LENGTH OF TAG GROUP LIST: ", len(tag_group_list))
 
-    #####
+    # print("LENGTH OF TAG GROUP LIST: ", len(tag_group_list))
+
     Results = [0] * len(res_idx)
-    for x, idx in enumerate(res_idx):
+    for x, idx in enumerate(res_idx):  # for now, idx is just 1
+        symbol_start = start_symbol_time[0]
+        symbol_end = end_time[0]
+        data_start = start_data_time[0]
+        true_p = true_pulse[0]
+        stage = []
+        stage_dual = []
+        q = 0
+        results: list[Event] = []
+
         current_list = tag_group_list[idx]
-        _results = []
+        current_pre_corrected_list = tag_group_list_pre_corrected[idx]
+        results = []
         ######
         # print(current_list)
-        # has a tendency to process a tag too early...
-        for i, tag in enumerate(current_list):  # generalize later
+        for i, (dual_tag, tag) in enumerate(
+            zip(current_list, current_pre_corrected_list)
+        ):  # generalize later
             if tag > end_time[-1]:
                 # tag is in extra region at the end of the sequence that doesn't corresponds to any data
+                # that's only likely if its the last tag. break.
                 break
-
             if tag > symbol_end + (
                 laser_time / 2
-            ):  # last slot (like 2047 or 1023) is at time symbol_end
-                # incude the len(stage) part so that we don't try to decode empty stage if 1st tag of sequence not found
-                # current stage is full. Process it.
+            ):  # at this point all the tags that fit inside the current symbol are loaded into stage
+                # process the stage
                 if len(stage) > 0:
-                    _results.append(
+                    results.append(
                         decode_symbol(
                             stage,
+                            stage_dual,
                             symbol_start,
                             symbol_end,
                             data_start,
                             true_p,
+                            gm_data,
                             laser_time,
                         )
                     )
                     stage = []
+                    stage_dual = []
                 else:
-                    _results.append([-1, "D"])
+                    results.append(
+                        Event(result=Result.MISSING, true=true_p)
+                    )  # tag correponds to a later symbol. The prev. symbol must be missing
 
                 # if sequence == 37:
-                #     print("symbol end 37: ", symbol_end + (laser_time/2))
+                #     print("symbol end 37: ", symbol_end + (laser_time / 2))
                 #     print("tag: ", tag)
                 # if sequence == 46:
                 #     print("symbol end 46: ", symbol_end + (laser_time / 2))
                 #     print("tag: ", tag)
+
                 # stage is still []
                 # prepare the next stage.
                 # does current tag fit in next stage or a later stage?
@@ -1063,145 +1069,271 @@ def decode_ppm(
                         ):
                             # found new region to fill
                             stage.append(tag)
+                            stage_dual.append(dual_tag)
 
                             # if last tag, process it now before checking for more
                             if i == len(current_list) - 1:
-                                _results.append(
+                                results.append(
                                     decode_symbol(
                                         stage,
+                                        stage_dual,
                                         symbol_start,
                                         symbol_end,
                                         data_start,
                                         true_p,
+                                        gm_data,
                                         laser_time,
                                     )
                                 )
                             break
                         else:
                             # symbol passed with no data. append the vacuume identifier to results.
-                            _results.append([-1, "D"])
+                            # results.append([-1, "D"])
+                            results.append(Event(result=Result.MISSING, true=true_p))
                     else:
                         # no more data found in this cycle.
-                        _results.append([-1, "D"])
+                        results.append(Event(result=Result.MISSING, true=true_p))
                         break
 
             else:
                 stage.append(tag)
+                stage_dual.append(dual_tag)
 
                 # if last tag, process it now before checking for more
                 if i == len(current_list) - 1:
-                    _results.append(
+                    results.append(
                         decode_symbol(
                             stage,
+                            stage_dual,
                             symbol_start,
                             symbol_end,
                             data_start,
                             true_p,
+                            gm_data,
                             laser_time,
                         )
                     )
 
-        still_missing = len(pulses_list) - len(_results)
-        _results.extend([[-1, "D"]] * still_missing)
-        ###################
+        still_missing = len(pulses_list) - len(results)
+        results.extend([Event(result=Result.MISSING)] * still_missing)
 
-        # e = 0
-        # for item in results:
-        #     if item[1] == 'E':
-        #         e = e + 1
+        Results[x] = results
 
-        # if len(current_list) < e and e > 6:
-        #     print(results)
-        #     print(current_list)
-        #     viz_current_decoding(current_list, gt_path, 3200000, sequence, start = start_data_time, end = end_time)
-        #     print("##################################")
+    numb_crr = []
 
-        # if sequence == 37:
-        #     viz_current_decoding(current_list, gt_path, clock_period, sequence, start=start_data_time, end=end_time)
-        #     print("########## sequence: ", sequence)
-        #     print(current_list)
-        #     print(_results)
-        #
-        # if sequence == 46:
-        #     viz_current_decoding(current_list, gt_path, clock_period, sequence, start=start_data_time, end=end_time)
-        #     print("########## sequence: ", sequence)
-        #     print(current_list)
-        #     print(_results)
-        #
-        # if sequence == 118:
-        #     viz_current_decoding(current_list, gt_path, clock_period, sequence, start=start_data_time, end=end_time)
-        #     print("########## sequence: ", sequence)
-        #     print(current_list)
-        #     print(_results)
+    for res in Results:
+        number_correct = 0
+        for event in res:
+            if event.result == Result.CORRECT:
+                number_correct = number_correct + 1
+        numb_crr.append(number_correct)
 
-        # if len(results) != 9:
-        #     print(current_list)
-        #     viz_current_decoding(current_list, gt_path, 3200000, sequence)
-        #     print("symbol end: ", symbol_end)
-        Results[x] = _results
+    # print([round(x, 2) for x in numb_crr])
 
-    # print("ROBUST RESULT: ", results)
-    # move onto next PPM region
-    # print("tag group list 0: ", tag_group_list[0])
-    # print("tag group list 1: ", tag_group_list[1])
-    # print("tag group list 2: ", tag_group_list[2])
-
-    # print(len(tag_group_list))
-    # print(tag_group_list[1]) # don't use the 1st section, it may be partially filled.
-    # print("LENGTH OF TAG GROUP LIST 1: ", len(tag_group_list[1]))
-
-    # print("TAG GROUP LIST: ", tag_group_list)
-
-    # print("TAG GROUP LIST 2: ", tag_group_list[2])
-    # for i, tag in enumerate(tag_group_list[2]):
-    #     if len(tag_group_list[2]) == len(start_data_time):
-    #         tag = tag - start_data_time[i]
-    #         tag_group_list[2][i] = round(tag/50)
-    #
-    # if len(tag_group_list[2]) == len(start_data_time):
-    #     print("DATA TEST: ", tag_group_list[2])
-    #     print("GT: ", true_pulse)
-
-    tt = 0
-    for item in _results:
-        if item[1] == "A":
-            tt = tt + 1
-
-    return Results, tt  #  , diffs
+    return Results, numb_crr, len(tag_group_list)
 
 
-def decode_symbol(stage, symbol_start, symbol_end, data_start, true_p, laser_time):
+def correction_from_gaussian_model(estimate, dual_tag, gm_data: GMData, laser_time):
+    """_summary_
+
+    Args:
+        estimate (_type_): an index 0 to 2048 or 1024
+        dual_tag (_type_): _description_
+        gm_data (GMData): _description_
+        laser_time (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    offs = -0.00
+
+    prob_1 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate - 4 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=50,
+    )
+    prob_2 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate - 3 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=50,
+    )
+    prob_3 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate - 2 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=50,
+    )
+    prob_4 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate - 1 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=50,
+    )
+    prob_5 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate - 0 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=50,
+    )
+    prob_6 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate + 1 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=50,
+    )
+    prob_7 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate + 2 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=50,
+    )
+    prob_8 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate + 3 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=50,
+    )
+    prob_9 = find_gm_prob_for_offset(
+        dual_tag,
+        estimate + 4 + offs,
+        gm_data.means,
+        gm_data.covariances,
+        gm_data.weights,
+        bin_width=50,
+    )
+
+    # print("prob 1: ", prob_1, " prob 2: ", prob_2, " prob 3: ", prob_3)
+    largest_idx = np.argmax(
+        [prob_1, prob_2, prob_3, prob_4, prob_5, prob_6, prob_7, prob_8, prob_9]
+    )
+
+    return int(largest_idx - 4)
+    # return 0
+
+
+def decode_symbol(
+    stage,
+    stage_dual,
+    symbol_start,
+    symbol_end,
+    data_start,
+    true_p,
+    gm_data: GMData,
+    laser_time,
+):
     err = []
-    for tag in stage:
+    gaussian_err = []
+    err_tag = []
+    dual_err_tag = []
+
+    # for tag in stage:
+    for tag, dual_tag in zip(stage, stage_dual):
         if (tag > data_start - (laser_time / 2)) and (
             tag < symbol_end + (laser_time / 2)
         ):
             # options A or B
             solved = round((tag - data_start) / laser_time)
+
+            tag_from_start = tag - data_start
+            dual_tag_from_start = dual_tag - data_start
+
+            corr = correction_from_gaussian_model(
+                solved, dual_tag_from_start, gm_data, laser_time
+            )
+
+            gaussian_solved = solved + corr
+
             # if its correct and there haven't been
-            if solved == true_p:  # and len(err) == 0:
+            if gaussian_solved == true_p:  # and len(err) == 0:
                 if len(stage) > 1:
+                    # print("LONGER")
+                    # print("LONGER")
+                    # print("LONGER")
+                    # print("LONGER")
                     for i, tag in enumerate(stage):
                         stage[i] = round((tag - data_start) / laser_time)
-                    return [solved, "A"]
+                    # return [solved, "A"]  # ,stage]
+
+                    return Event(
+                        measured=solved,
+                        gaussian_measured=gaussian_solved,
+                        true=true_p,
+                        result=Result.CORRECT,
+                        tag=tag_from_start,
+                        tag_x=dual_tag_from_start[0],
+                        tag_y=dual_tag_from_start[1],
+                    )
                 else:
-                    return [solved, "A"]
+                    # return [solved, "A"]
+                    return Event(
+                        measured=solved,
+                        gaussian_measured=gaussian_solved,
+                        true=true_p,
+                        result=Result.CORRECT,
+                        tag=tag_from_start,
+                        tag_x=dual_tag_from_start[0],
+                        tag_y=dual_tag_from_start[1],
+                    )
             else:
                 err.append(solved)
+                gaussian_err.append(gaussian_solved)
+                err_tag.append(tag_from_start)
+                dual_err_tag.append(dual_tag_from_start)
 
         else:
             # must be a tag in the deadtime
             # A, C, or E
             err.append(-1)
 
-    for error in err:
+    for error, gauss_error, ertg, dual_ertg in zip(
+        err, gaussian_err, err_tag, dual_err_tag
+    ):
         if (error != -1) and len(err) > 1:
-            return [error, "C"]
+            # return [error, true_p, "C"]
+            return Event(
+                measured=error,
+                gaussian_measured=gauss_error,
+                true=true_p,
+                result=Result.INCORRECT_EXTRA,
+                tag=ertg,
+                tag_x=dual_ertg[0],
+                tag_y=dual_ertg[1],
+            )
         if (error != -1) and len(err) == 1:
-            return [error, "B"]
+            # return [error, true_p, "B"]
+            return Event(
+                measured=error,
+                gaussian_measured=gauss_error,
+                true=true_p,
+                result=Result.INCORRECT,
+                tag=ertg,
+                tag_x=dual_ertg[0],
+                tag_y=dual_ertg[1],
+            )
 
     # if here, all errors are in the deadtime
-    return [-1, "E"]
+    # return [-1, "E"]
+    return Event(
+        measured=-1, gaussian_measured=-1, true=true_p, result=Result.DEADTIME_ERROR
+    )
 
 
 def find_first_dirtyClock(array, num):
