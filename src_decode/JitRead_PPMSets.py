@@ -41,6 +41,12 @@ from bokeh.models import Circle
 
 from bokeh.models import ColumnDataSource
 
+from scipy import ndimage
+
+from sklearn.mixture import GaussianMixture
+from dataclasses import dataclass
+from enum import Enum
+
 # Colors, palette = phd.viz.phd_style( data_width = 0.3, grid = True, axese_width=0.3, text = 2)
 matplotlib.rcParams['figure.dpi'] = 150
 doc = curdoc()
@@ -589,6 +595,21 @@ def apply_pnr_correction(dual_data_nan, slices, corr1, corr2,seperated_arrays = 
         return corrected1_nan, corrected2_nan, array_list1, array_list2
     else:
         return corrected1_nan, corrected2_nan
+    
+
+@dataclass
+class GMData:
+    num_components: int
+    log_likelihood: float
+    covariances: np.ndarray
+    means: np.ndarray
+    weights: np.ndarray
+
+
+@dataclass
+class GMTotalData:
+    gm_list: list[GMData]
+    counts: np.ndarray
 
 
 def viz_correction_effect(sequence_counts, slices, corr1, corr2, gt_path, hist_set = False):
@@ -665,6 +686,25 @@ def using_clump(a):
     for arr in list_of_arrays:
         arr.sort()
     return list_of_arrays
+
+class Result(Enum):
+    CORRECT = "A"
+    INCORRECT = "B"
+    MISSING = "D"
+    INCORRECT_EXTRA = "C"
+    DEADTIME_ERROR = "E"
+
+
+@dataclass
+class Event:
+    result: Result
+    measured: int = -1
+    gaussian_measured: int = -1
+
+    true: int = -1
+    tag: int = -1
+    tag_x: int = -1
+    tag_y: int = -1
 
 
 def decode_ppm(m_data_corrected, gt_path , sequence, clock_period, res_idx=[1]):
@@ -1145,6 +1185,12 @@ def runAnalysisJit(path_, file_, gt_path):
         # graphs = [s1, s2]
         return results #, graphs
 
+@dataclass
+class Out:
+    results: list[list[Event]]
+    gm_data: GMTotalData
+    hist_data: PNRHistCorrectionData
+    correction_data: CorrectionData
 
 if __name__ == "__main__":
     full_decode = False
